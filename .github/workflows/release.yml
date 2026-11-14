@@ -1,0 +1,53 @@
+name: Release
+
+# Tag a commit `vX.Y.Z` and push the tag:
+#   git tag v0.1.0 && git push origin v0.1.0
+# This builds and tests everything, attaches the fat jar (+ sha256 and
+# install.sh) to a GitHub Release, and publishes vl-format-core to GitHub
+# Packages for plugin authors.
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Derive version from tag
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+
+      - name: Build, test, package
+        run: ./gradlew build :cli:fatJar -PvlformatVersion=${{ env.VERSION }}
+
+      - name: Checksums
+        run: |
+          cd cli/build/libs
+          shasum -a 256 vl-format-${{ env.VERSION }}.jar > vl-format-${{ env.VERSION }}.jar.sha256
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            cli/build/libs/vl-format-${{ env.VERSION }}.jar
+            cli/build/libs/vl-format-${{ env.VERSION }}.jar.sha256
+            install.sh
+
+      - name: Publish vl-format-core to GitHub Packages
+        run: ./gradlew :core:publish -PvlformatVersion=${{ env.VERSION }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

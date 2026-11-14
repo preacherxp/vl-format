@@ -1,0 +1,16 @@
+# vl-format configuration (Java properties syntax).
+# Copy to `.vlformat` in your project root; the formatter walks up from each
+# formatted file and uses the first one it finds.
+
+indentSize=4
+continuationIndent=8
+maxBlankLines=1
+# Lines longer than this are reported as warnings (never re-wrapped); 0 = off.
+maxLineLength=0
+attachBraces=true
+attachClauses=true
+insertFinalNewline=true
+alignCommentStars=true
+
+# Disable built-in or plugin rules by name (comma-separated):
+# disabledRules=blank-lines,attach-clauses
