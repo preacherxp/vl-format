@@ -79,7 +79,9 @@ class FormatterTest {
 
     @Test
     fun `angle brackets keep author spacing`() {
-        assertEquals("val m: Map<String, List<Int>> = mapOf()\n", kt("val m:Map<String,List<Int>>=mapOf()"))
+        // `Map<..>>=x` (glued) is not valid Kotlin: kotlinc lexes `>=`. The
+        // spaced form normalizes; a glued `>=` is always kept as is.
+        assertEquals("val m: Map<String, List<Int>> = mapOf()\n", kt("val m:Map<String,List<Int>> =mapOf()"))
         assertEquals("boolean t = a < b;\n", java("boolean t = a < b;"))
         assertEquals("int s = x >> 2;\n", java("int s = x >> 2;"))
     }

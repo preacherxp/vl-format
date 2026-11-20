@@ -32,7 +32,7 @@ private fun usage(): String = """
       --stdout        Format a single file to stdout
       --config <p>    Use an explicit .vlformat properties file
       --threads <n>   Worker threads (default: CPU cores)
-      --no-verify     Skip the token-safety verification pass
+      --no-verify     Skip the safety check that runs before each write
       --stats         Print timing and throughput
       --version       Print version
       --help, -h      This help
@@ -88,7 +88,9 @@ private fun collectFiles(roots: List<Path>): List<Path> {
                 files.addAll(
                     stream
                         .filter { p -> Files.isRegularFile(p) && Language.fromFileName(p.name) != null }
-                        .filter { p -> p.none { part -> part.name in SKIPPED_DIRS } }
+                        // Only directories below the given root count: a project
+                        // that itself lives under e.g. ~/build/ is still walked.
+                        .filter { p -> root.relativize(p).none { part -> part.name in SKIPPED_DIRS } }
                         .collect(Collectors.toList()),
                 )
             }
@@ -191,6 +193,8 @@ fun runCli(
                         out.print(formatted)
                     }
                     FileResult.Ok(file, changed, longLineWarnings(file, formatted, config.maxLineLength))
+                } catch (e: java.nio.charset.CharacterCodingException) {
+                    FileResult.Error(file, "not valid UTF-8; skipped")
                 } catch (e: Exception) {
                     FileResult.Error(file, e.message ?: e.javaClass.simpleName)
                 }
@@ -203,8 +207,9 @@ fun runCli(
     val errors = results.filterIsInstance<FileResult.Error>()
     val changed = results.filterIsInstance<FileResult.Ok>().filter { it.changed }
 
+    // Errors (including safety refusals) always go to stderr, also with --stdout.
+    for (e in errors) err.println("ERROR ${e.path}: ${e.message}")
     if (!opts.stdout) {
-        for (e in errors) err.println("ERROR ${e.path}: ${e.message}")
         // Long-line reports are warnings: printed, never fatal.
         results.filterIsInstance<FileResult.Ok>().flatMap { it.warnings }.forEach { err.println(it) }
         when {

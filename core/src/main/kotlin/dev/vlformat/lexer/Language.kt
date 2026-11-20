@@ -42,6 +42,14 @@ object Keywords {
         "reified", "sealed", "suspend", "tailrec", "vararg",
     )
 
+    /** Kotlin hard keywords: never usable as plain names. The rest of [KOTLIN] are soft. */
+    val KOTLIN_HARD: Set<String> = setOf(
+        "as", "break", "class", "continue", "do", "else", "false", "for", "fun",
+        "if", "in", "interface", "is", "null", "object", "package", "return",
+        "super", "this", "throw", "true", "try", "typealias", "typeof", "val",
+        "var", "when", "while",
+    )
+
     /** Control-flow keywords that take a space before `(`: `if (x)`, not `if(x)`. */
     val CONTROL: Set<String> = setOf(
         "if", "for", "while", "when", "catch", "switch", "synchronized", "do",

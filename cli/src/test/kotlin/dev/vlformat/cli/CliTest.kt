@@ -102,6 +102,40 @@ class CliTest {
     }
 
     @Test
+    fun `project inside a directory named like a skipped one is still walked`() {
+        // Skip names apply below the given root only, not to its own path.
+        val outer = Files.createTempDirectory("vlfmt-cli").resolve("build/proj")
+        outer.resolve("src").createDirectories()
+        outer.resolve("src/A.kt").writeText("fun a( )=1\n")
+        outer.resolve("build").createDirectories()
+        outer.resolve("build/Gen.kt").writeText("fun g( )=1\n")
+        val run = cli("--check", outer.toString())
+        assertEquals(2, run.code, run.err)
+        assertTrue(run.out.contains("A.kt"))
+        assertTrue(!run.out.contains("Gen.kt"), "nested build/ is still skipped")
+    }
+
+    @Test
+    fun `errors are reported on stderr in stdout mode too`() {
+        val dir = tempProject()
+        val bad = dir.resolve("src/Bad.java")
+        Files.write(bad, byteArrayOf(0xff.toByte(), 0xfe.toByte(), 'x'.code.toByte()))
+        val run = cli("--stdout", bad.toString())
+        assertEquals(1, run.code)
+        assertTrue(run.err.contains("Bad.java") && run.err.contains("UTF-8"), run.err)
+    }
+
+    @Test
+    fun `check mode exit codes for CI`() {
+        val dir = tempProject()
+        assertEquals(2, cli("--check", dir.toString()).code)
+        assertEquals(0, cli(dir.toString()).code)
+        val clean = cli("--check", dir.toString())
+        assertEquals(0, clean.code)
+        assertEquals("", clean.out)
+    }
+
+    @Test
     fun `help and version exit 0`() {
         assertEquals(0, cli("--help").code)
         assertEquals(0, cli("--version").code)

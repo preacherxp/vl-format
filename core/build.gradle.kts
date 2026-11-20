@@ -32,14 +32,14 @@ publishing {
             pom {
                 name.set("vl-format-core")
                 description.set("Fast, extensible Kotlin & Java formatter — core library and rule SPI")
-                url.set("https://github.com/${System.getenv("GITHUB_REPOSITORY") ?: "purecode-projects/vl-format"}")
+                url.set("https://github.com/${System.getenv("GITHUB_REPOSITORY") ?: "preacherxp/vl-format"}")
             }
         }
     }
     repositories {
         maven {
             name = "GitHubPackages"
-            url = uri("https://maven.pkg.github.com/${System.getenv("GITHUB_REPOSITORY") ?: "purecode-projects/vl-format"}")
+            url = uri("https://maven.pkg.github.com/${System.getenv("GITHUB_REPOSITORY") ?: "preacherxp/vl-format"}")
             credentials {
                 username = System.getenv("GITHUB_ACTOR")
                 password = System.getenv("GITHUB_TOKEN")

@@ -5,4 +5,4 @@ plugins {
 
 rootProject.name = "vl-format"
 
-include(":core", ":cli")
+include(":core", ":cli", ":corpus-check")

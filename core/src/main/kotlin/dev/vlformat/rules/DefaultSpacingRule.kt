@@ -32,6 +32,9 @@ class DefaultSpacingRule : SpacingRule {
             return if (r.type == TokenType.KEYWORD) SpaceDecision.KEEP else SpaceDecision.NONE
         }
 
+        // Kotlin `return@label` / `x @Ann`: the gap before `@` is meaningful.
+        if (lang == Language.KOTLIN && r.type == TokenType.AT) return SpaceDecision.KEEP
+
         // Java `non-sealed` is one hyphenated keyword; never space it apart.
         if (lang == Language.JAVA) {
             if (l.text == "non" && r.text == "-" && tokens.getOrNull(rightIndex + 1)?.text == "sealed") {
@@ -43,7 +46,14 @@ class DefaultSpacingRule : SpacingRule {
         }
 
         // Member access & friends never get spaces: `a.b`, `a?.b`, `Foo::bar`, `1..10`.
-        if (l.type == TokenType.OPERATOR && l.text in TIGHT_OPERATORS) return SpaceDecision.NONE
+        if (l.type == TokenType.OPERATOR && l.text in TIGHT_OPERATORS) {
+            // `x!!.y`, `f!!()`, `a!![0]` hug; `x!! in y` and `x!! == y` keep a
+            // binary gap (`x!!in` and `x!!==` don't parse in Kotlin).
+            val postfixThen = l.text == "!!" &&
+                !(r.type == TokenType.OPERATOR && r.text in TIGHT_OPERATORS_BEFORE) &&
+                r.type != TokenType.LPAREN && r.type != TokenType.LBRACKET
+            if (!postfixThen) return SpaceDecision.NONE
+        }
         if (r.type == TokenType.OPERATOR && r.text in TIGHT_OPERATORS_BEFORE) {
             // `::` and `!!` hug only a value on their left (`Foo::bar`, `x!!`);
             // unbound references like `val f = ::inc` keep the binary gap.
@@ -62,7 +72,7 @@ class DefaultSpacingRule : SpacingRule {
         }
 
         // Parentheses.
-        if (r.type == TokenType.LPAREN) return spaceBeforeLParen(l)
+        if (r.type == TokenType.LPAREN) return spaceBeforeLParen(l, lang)
         if (l.type == TokenType.LPAREN) return SpaceDecision.NONE
         if (r.type == TokenType.RPAREN) return SpaceDecision.NONE
         // `if (x) return`, `(int) cast`, `) @interface` — `).foo`/`)(`/`);`
@@ -94,18 +104,10 @@ class DefaultSpacingRule : SpacingRule {
         if (l.type == TokenType.RBRACE) return SpaceDecision.ONE
 
         // Angle brackets are ambiguous at token level (generics vs comparison
-        // vs shift halves) — preserve the author's choice. One exception we can
-        // resolve: `Map<K, V>=x` where `>` provably closes a type argument
-        // list, so `=` is an assignment and deserves a space.
-        if (isAngle(l)) {
-            if (l.text == ">" && r.type == TokenType.OPERATOR && r.text == "=" &&
-                closesTypeArguments(tokens, leftIndex)
-            ) {
-                return SpaceDecision.ONE
-            }
-            return SpaceDecision.KEEP
-        }
-        if (isAngle(r)) return SpaceDecision.KEEP
+        // vs shift halves) — preserve the author's choice. No exceptions: a
+        // glued `>=`/`>>` is always an operator in valid code (Kotlin and Java
+        // both reject `Map<K, V>=x`), and `f(a<b, c>=d)` must stay intact.
+        if (isAngle(l) || isAngle(r)) return SpaceDecision.KEEP
 
         // Colons need context (types, ternary, case labels, use-site targets).
         if (r.type == TokenType.OPERATOR && r.text == ":") return spaceBeforeColon(tokens, leftIndex, rightIndex, lang)
@@ -144,14 +146,12 @@ class DefaultSpacingRule : SpacingRule {
             return if (binary) SpaceDecision.ONE else SpaceDecision.NONE
         }
 
-        // `=` glued to a non-generic `>` is the right half of a `>=` comparison
-        // (the lexer never fuses `>=`; see the operator table). Keep author
-        // spacing after it, like the other angle-bracket cases.
+        // `=` glued to a `>` is the right half of a `>=` comparison (the lexer
+        // never fuses `>=`; see the operator table). Keep author spacing after
+        // it, like the other angle-bracket cases.
         if (l.type == TokenType.OPERATOR && l.text == "=" && !l.hadSpaceBefore) {
             val before = tokens.getOrNull(leftIndex - 1)
-            if (before != null && isAngle(before) && before.text == ">" &&
-                !closesTypeArguments(tokens, leftIndex - 1)
-            ) {
+            if (before != null && before.type == TokenType.OPERATOR && before.text == ">") {
                 return SpaceDecision.KEEP
             }
         }
@@ -165,16 +165,30 @@ class DefaultSpacingRule : SpacingRule {
         return SpaceDecision.KEEP
     }
 
-    private fun spaceBeforeLParen(l: Token): SpaceDecision = when (l.type) {
+    private fun spaceBeforeLParen(l: Token, lang: Language): SpaceDecision = when (l.type) {
         TokenType.KEYWORD -> when (l.text) {
             in Keywords.CONTROL -> SpaceDecision.ONE
             "this", "super", "constructor", "get", "set" -> SpaceDecision.NONE
-            else -> SpaceDecision.ONE
+            // `suspend () -> Unit` is a function type; `suspend(x)` could be a call.
+            "suspend" -> SpaceDecision.KEEP
+            // Kotlin soft keywords are ordinary names in call position:
+            // `expect(1)`, `data(x)`, `value(v)` are function calls.
+            else -> if (lang == Language.KOTLIN && l.text !in Keywords.KOTLIN_HARD) {
+                SpaceDecision.NONE
+            } else {
+                SpaceDecision.ONE
+            }
         }
         TokenType.IDENTIFIER, TokenType.RPAREN, TokenType.RBRACKET, TokenType.STRING -> SpaceDecision.NONE
         TokenType.RBRACE -> SpaceDecision.NONE // `{ ... }()` immediate invocation
         TokenType.LPAREN -> SpaceDecision.NONE
-        TokenType.OPERATOR -> if (l.text == ">") SpaceDecision.NONE else SpaceDecision.ONE // `listOf<Int>()`
+        // `listOf<Int>()`: a `>` hugging its left side closes type arguments.
+        // A spaced `a > (b)` or `a < (b)` is a comparison: keep author spacing.
+        TokenType.OPERATOR -> when {
+            l.text == ">" && !l.hadSpaceBefore -> SpaceDecision.NONE
+            l.text == ">" || l.text == "<" -> SpaceDecision.KEEP
+            else -> SpaceDecision.ONE
+        }
         else -> SpaceDecision.ONE
     }
 
@@ -202,38 +216,6 @@ class DefaultSpacingRule : SpacingRule {
                     if (depth == 0) return isInitializerBrace(tokens, k)
                 }
                 else -> {}
-            }
-            k--
-            steps++
-        }
-        return false
-    }
-
-    /**
-     * True when the `>` at [index] provably closes a `<...>` type argument
-     * list: the scan back to the matching `<` sees only type-ish tokens, and
-     * an identifier precedes the `<`.
-     */
-    private fun closesTypeArguments(tokens: List<Token>, index: Int): Boolean {
-        var depth = 1
-        var steps = 0
-        var k = index - 1
-        while (k >= 0 && steps < SCAN_CAP) {
-            val t = tokens[k]
-            when {
-                t.type == TokenType.OPERATOR && t.text == ">" -> depth++
-                t.type == TokenType.OPERATOR && t.text == "<" -> {
-                    depth--
-                    if (depth == 0) {
-                        val before = tokens.getOrNull(k - 1)
-                        return before != null && before.type == TokenType.IDENTIFIER
-                    }
-                }
-                t.type == TokenType.IDENTIFIER || t.type == TokenType.COMMA ||
-                    t.type == TokenType.LBRACKET || t.type == TokenType.RBRACKET -> {}
-                t.type == TokenType.OPERATOR && (t.text == "." || t.text == "?" || t.text == "*") -> {}
-                t.type == TokenType.KEYWORD && t.text in TYPE_ARG_KEYWORDS -> {}
-                else -> return false
             }
             k--
             steps++
@@ -292,6 +274,12 @@ class DefaultSpacingRule : SpacingRule {
             val t = tokens[k]
             when (t.type) {
                 TokenType.SEMICOLON, TokenType.LBRACE, TokenType.RBRACE -> return StmtContext.OTHER
+                // Kotlin statements end at a line break outside parentheses; without
+                // this, `expect class X` on an earlier line made a later
+                // `): Result` look like a class-header colon.
+                TokenType.NEWLINE -> if (lang == Language.KOTLIN && parenDepth == 0 && !insideParens) {
+                    return StmtContext.OTHER
+                }
                 TokenType.RPAREN -> parenDepth++
                 TokenType.LPAREN -> {
                     if (parenDepth == 0) {
@@ -339,12 +327,6 @@ class DefaultSpacingRule : SpacingRule {
         /** Keywords after which `+`/`-`/`*` are unary: `return -1`, `case -1:`. */
         private val UNARY_CONTEXT_KEYWORDS = setOf(
             "return", "case", "in", "else", "yield", "throw", "assert", "when", "while", "if", "do",
-        )
-
-        /** Keywords legal inside type argument lists. */
-        private val TYPE_ARG_KEYWORDS = setOf(
-            "in", "out", "extends", "super", "int", "long", "short", "byte",
-            "char", "boolean", "float", "double", "var",
         )
     }
 }
